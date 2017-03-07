@@ -15,14 +15,15 @@ class LaneRenderer:
 
     def findLineFit(self, img, tup):
         y, x, w = tup
-        return np.polyfit(y,x,3,w=w)
+        return np.polyfit(y,x,3,w=w**4)
 
     def findLaneFit(self, imgLeft, imgRight):
 
         left = self.extractPoints(imgLeft)
         right = self.extractPoints(imgRight)
 
-        print(left, right)
+        leftFit = self.findLineFit(imgLeft, left)
+        rightFit = self.findLineFit(imgRight, right)
 
         # adjust the lane fit so that both lines are parallel, using the line with the longest trail of points
         ylmin = np.min(left[0])
@@ -31,30 +32,55 @@ class LaneRenderer:
         yadj, xadj, wadj = left if ylmin > yrmin else right
         yadjr = (yrmin, ylmin, -self.laneWidth) if ylmin > yrmin else (ylmin, yrmin, self.laneWidth)
         imgCp = imgRight if ylmin > yrmin else imgLeft
+        bestFit = rightFit if ylmin > yrmin else leftFit
 
-        #copy data points within the adjustment range
+        #adjust the line fit by copy data points within the adjustment range
         if yadjr[1] - yadjr[0] > 50:
+
+            print('adding extra points: diff = ', yadjr[1] - yadjr[0])
+
+            delta = yadjr[2]
+            absdelta = abs(yadjr[2])
+            deriv = np.polyder(bestFit)
 
             subimg = imgCp[yadjr[0]:yadjr[1]-50,:]
 
             ycp, xcp, wcp = self.extractPoints(subimg)
-
-            xcp += yadjr[2]
             ycp += yadjr[0]
 
-            print(xcp, ycp)
+            # translate the points perpendicular to the tanget of the curve at the given point
+            yn, xn = [], []
+            for yo, xo in zip(ycp, xcp):
+                dy = np.polyval(deriv, yo)
+                dx = np.sqrt(1 - dy*dy)
+                if delta < 0:
+                    dx = -dx
 
-            xadj = np.concatenate((xadj, xcp))
-            yadj = np.concatenate((yadj, ycp))
+                yn.append(int(yo + dy * absdelta))
+                xn.append(int(xo + dx * absdelta))
+
+            print(np.dstack((xn, yn)))
+
+            xadj = np.concatenate((xadj, np.array(xn)))
+            yadj = np.concatenate((yadj, np.array(yn)))
             wadj = np.concatenate((wadj, wcp))
 
             if ylmin > yrmin:
                 left = (yadj, xadj, wadj)
+                leftFit = self.findLineFit(imgLeft, left)
             else:
                 right = (yadj, xadj, wadj)
+                rightFit = self.findLineFit(imgLeft, right)
 
-        leftFit = self.findLineFit(imgLeft, left)
-        rightFit = self.findLineFit(imgRight, right)
+        if False:
+
+            copyFit = bestFit.copy()
+            copyFit[3] += yadjr[2]
+
+            if ylmin > yrmin:
+                leftFit = copyFit
+            else:
+                rightFit = copyFit
 
         return (leftFit, rightFit)
 

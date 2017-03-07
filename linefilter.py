@@ -20,6 +20,29 @@ class LineFilter:
             mask = op(mask, self.mask)
         self.mask = mask
 
+    def sobelX(self, channel, kernel, bAbs=True):
+        pixels = self.img[:,:,channel]
+
+        deriv_filter = cv2.getDerivKernels(dx=1, dy=0, ksize=kernel, normalize=True)
+        sobelx = cv2.sepFilter2D(pixels, cv2.CV_64F, deriv_filter[0], deriv_filter[1])
+
+        if bAbs:
+            sobelx = np.abs(sobelx)
+
+        return sobelx
+
+    def sobelY(self, channel, kernel, bAbs=True):
+        pixels = self.img[:,:,channel]
+
+        deriv_filter = cv2.getDerivKernels(dx=0, dy=1, ksize=kernel, normalize=True)
+        sobely = cv2.sepFilter2D(pixels, cv2.CV_64F, deriv_filter[0], deriv_filter[1])
+
+        if bAbs:
+            sobely = np.abs(sobely)
+
+        return sobely
+
+
     def colorThreshold(self, channel, threshold, op='and'):
 
         pixels = self.img[:,:,channel]
@@ -84,7 +107,7 @@ class LineFilter:
         sobelx = cv2.sepFilter2D(pixels, cv2.CV_64F, deriv_filter1[0], deriv_filter1[1])
         sobely = cv2.sepFilter2D(pixels, cv2.CV_64F, deriv_filter2[0], deriv_filter2[1])
 
-        sobelarctan = np.arctan2(sobely, sobelx)
+        sobelarctan = np.abs(np.arctan2(sobely, sobelx))
         mask = [(sobelarctan >= angle[0]) & (sobelarctan <= angle[1])]
 
         self.output = sobelarctan

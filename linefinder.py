@@ -1,16 +1,17 @@
 import numpy as np
 import cv2
+import math
 from scipy import signal
 
 class LineFinder:
 
-    def __init__(self, laneWidth, filterSize, window_width, window_height, margin, marginGrowth):
+    def __init__(self, laneWidth, filterSize, window_width, window_height, margin, terminate):
         self.window_width = window_width
         self.window_height = window_height
         self.margin = margin
         self.filterSize = filterSize
         self.laneWidth = laneWidth
-        self.marginGrowth = marginGrowth
+        self.terminate = terminate if terminate else math.inf
 
     def copy_mask(self, imgInput, imgOutput, width, height, center,level):
         shape = imgInput.shape
@@ -57,14 +58,17 @@ class LineFinder:
         r_center = np.argmax(conv_signal)+hw
 
         # Add what we found for the first layer
-        window_centroids.append((l_center,r_center))
+        window_centroids.append((l_center,r_center,window_width,window_width))
         offset = window_width/2
 
-        lMarginGrowth = 0
-        rMarginGrowth = 0
+        lMissing = 0
+        rMissing = 0
+
+        diffCentroid = (0, 0)
 
         # Go through each layer looking for max pixel locations
         for level in range(1,(int)(shape[0]/window_height)):
+
             # convolve the window into the vertical slice of the image
             #image_layer = np.sum(image[int(shape[0]-(level+1)*window_height):int(shape[0]-level*window_height),:], axis=0)
             image_layer = image[int(shape[0]-(level+1)*window_height):int(shape[0]-level*window_height),:]
@@ -73,23 +77,46 @@ class LineFinder:
 
             # Find the best left centroid by using past left center as a reference
             # Use window_width/2 as offset because convolution signal reference is at right side of window, not center of window
-            l_min_index = int(max(l_center-margin-lMarginGrowth,0))
-            l_max_index = int(min(l_center+margin+lMarginGrowth,shape[1]))
+            l_min_index = int(min(max(l_center-margin+diffCentroid[0],0),shape[1]))
+            l_max_index = int(max(min(l_center+margin+diffCentroid[0],shape[1]),0))
+
             left_values = conv_signal[l_min_index:l_max_index]
-            if np.max(left_values) > 0:
+            if np.max(left_values) > 0 and lMissing <= self.terminate:
                 l_center = np.argmax(left_values)+l_min_index
+                lMissing = 0
             else:
-                lMarginGrowth += self.marginGrowth
+                lMissing += window_height
+
             # Find the best right centroid by using past right center as a reference
-            r_min_index = int(max(r_center-margin-rMarginGrowth,0))
-            r_max_index = int(min(r_center+margin+rMarginGrowth,image.shape[1]))
+            r_min_index = int(min(max(r_center-margin+diffCentroid[1],0),shape[1]))
+            r_max_index = int(max(min(r_center+margin+diffCentroid[1],image.shape[1]),0))
+
             right_values = conv_signal[r_min_index:r_max_index]
-            if np.max(right_values) > 0:
+            if np.max(right_values) > 0 and rMissing <= self.terminate:
                 r_center = np.argmax(right_values)+r_min_index
+                rMissing = 0
             else:
-                rMarginGrowth += self.marginGrowth
+                rMissing += window_height
+
+            if lMissing > 0:
+                l_center += diffCentroid[1]
+            if rMissing > 0:
+                r_center += diffCentroid[0]
+
+            print(diffCentroid)
+            
             # Add what we found for that layer
-            window_centroids.append((l_center,r_center))
+            prevCentroid = None
+            if len(window_centroids) > 0:
+                prevCentroid = window_centroids[-1]
+                diffCentroid = (l_center - prevCentroid[0], r_center - prevCentroid[1])
+
+            window_centroids.append(
+                (l_center,r_center,
+                 window_width if lMissing <= self.terminate else 0,
+                 window_width if rMissing <= self.terminate else 0
+                )
+            )
 
         return window_centroids
 
@@ -114,11 +141,16 @@ class LineFinder:
             # Go through each level and draw the windows
             for level in range(0,len(window_centroids)):
                 # Window_mask is a function to draw window areas
-                self.copy_mask(img,l_points,window_width,window_height,window_centroids[level][0],level)
-                self.copy_mask(img,r_points,window_width,window_height,window_centroids[level][1],level)
+                centroid = window_centroids[level]
+                if centroid[0] != -1:
+                    self.copy_mask(img,l_points,centroid[2],window_height,centroid[0],level)
+                if centroid[1] != -1:
+                    self.copy_mask(img,r_points,centroid[3],window_height,centroid[1],level)
                 if drawBoundaries:
-                    self.set_mask(1, boundariesLeft, window_width,window_height,window_centroids[level][0],level)
-                    self.set_mask(1, boundariesRight, window_width,window_height,window_centroids[level][1],level)
+                    if centroid[0] != -1:
+                        self.set_mask(1, boundariesLeft, centroid[2],window_height,centroid[0],level)
+                    if centroid[1] != -1:
+                        self.set_mask(1, boundariesRight, centroid[3],window_height,centroid[1],level)
 
         # Draw the results
         if drawBoundaries:
