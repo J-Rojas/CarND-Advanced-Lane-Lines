@@ -104,7 +104,7 @@ class LineFinder:
                 r_center += diffCentroid[0]
 
             print(diffCentroid)
-            
+
             # Add what we found for that layer
             prevCentroid = None
             if len(window_centroids) > 0:

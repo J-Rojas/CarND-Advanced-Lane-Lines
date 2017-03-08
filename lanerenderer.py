@@ -2,10 +2,20 @@ import numpy as np
 import cv2
 import scipy as sci
 
+class Lane:
+
+    def __init__(self):
+        self.lineFit = None
+        self.radius = None
+        self.centerOffset = None
+        self.dataPoints = None
+
 class LaneRenderer:
 
-    def __init__(self, laneWidth):
-        self.laneWidth = laneWidth
+    def __init__(self, laneWidthPixels, metersPerPixelX, metersPerPixelY):
+        self.laneWidth = laneWidthPixels
+        self.metersPerPixelX = metersPerPixelX
+        self.metersPerPixelY = metersPerPixelY
 
     def extractPoints(self, img):
         y, x = np.where(img != 0)
@@ -13,17 +23,39 @@ class LaneRenderer:
         w = img[values]
         return (y, x, w)
 
-    def findLineFit(self, img, tup):
+    def findLineFit(self, tup):
         y, x, w = tup
         return np.polyfit(y,x,3,w=w**4)
+
+    def findObjectSpaceLineFit(self, tup):
+        y, x, w = tup
+
+        # Scale the lane points wrt real world lane dimensions
+        curveData = (y * self.metersPerPixelY, x * self.metersPerPixelX, w)
+        actualFit = self.findLineFit(curveData)
+
+        return actualFit
+
+    def findLineCurvature(self, actualFit, yRef):
+        # Calculate the new radii of curvature
+        dy1 = np.polyder(actualFit)
+        dy2 = np.polyder(actualFit, 2)
+        yScaledRef = yRef * self.metersPerPixelY
+
+        curverad = ((1 + (np.polyval(dy1, yScaledRef)**2))**1.5) / np.absolute(np.polyval(dy2, yScaledRef))
+        return curverad
+
+    def findObjectSpaceX(self, actualFit, yRef):
+        yScaledRef = yRef * self.metersPerPixelY
+        return np.polyval(actualFit, yScaledRef)
 
     def findLaneFit(self, imgLeft, imgRight):
 
         left = self.extractPoints(imgLeft)
         right = self.extractPoints(imgRight)
 
-        leftFit = self.findLineFit(imgLeft, left)
-        rightFit = self.findLineFit(imgRight, right)
+        leftFit = self.findLineFit(left)
+        rightFit = self.findLineFit(right)
 
         # adjust the lane fit so that both lines are parallel, using the line with the longest trail of points
         ylmin = np.min(left[0])
@@ -67,22 +99,38 @@ class LaneRenderer:
 
             if ylmin > yrmin:
                 left = (yadj, xadj, wadj)
-                leftFit = self.findLineFit(imgLeft, left)
+                leftFit = self.findLineFit(left)
             else:
                 right = (yadj, xadj, wadj)
-                rightFit = self.findLineFit(imgLeft, right)
+                rightFit = self.findLineFit(right)
 
-        if False:
+        # find scaled line fit in object space
+        leftObjectFit = self.findObjectSpaceLineFit(left)
+        rightObjectFit = self.findObjectSpaceLineFit(right)
 
-            copyFit = bestFit.copy()
-            copyFit[3] += yadjr[2]
+        # find curvature radius
+        leftRadius = self.findLineCurvature(leftObjectFit, imgLeft.shape[0])
+        rightRadius = self.findLineCurvature(rightObjectFit, imgRight.shape[0])
 
-            if ylmin > yrmin:
-                leftFit = copyFit
-            else:
-                rightFit = copyFit
+        print(leftRadius, rightRadius)
+        radius = leftRadius if ylmin < yrmin else rightRadius
 
-        return (leftFit, rightFit)
+        #find lane offset
+        lObjectLanePosition = self.findObjectSpaceX(leftObjectFit, imgLeft.shape[0])
+        rObjectLanePosition = self.findObjectSpaceX(rightObjectFit, imgRight.shape[0])
+        laneObjectCenter = (lObjectLanePosition + rObjectLanePosition) / 2
+
+        print(lObjectLanePosition, rObjectLanePosition, laneObjectCenter)
+
+        offset = (max(imgLeft.shape[1], imgLeft.shape[1]) / 2) * self.metersPerPixelX - laneObjectCenter
+
+        lane = Lane()
+        lane.lineFit = (leftFit, rightFit)
+        lane.dataPoints = (left, right)
+        lane.radius = radius
+        lane.centerOffset = offset
+
+        return lane
 
     def generateLinePoints(self, shape, fit, step):
 
