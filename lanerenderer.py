@@ -9,6 +9,7 @@ class Lane:
         self.radius = None
         self.centerOffset = None
         self.dataPoints = None
+        self.minY = None
 
 class LaneRenderer:
 
@@ -25,7 +26,7 @@ class LaneRenderer:
 
     def findLineFit(self, tup):
         y, x, w = tup
-        return np.polyfit(y,x,3,w=w**4)
+        return np.polyfit(y,x,3,w=w**2+y)
 
     def findObjectSpaceLineFit(self, tup):
         y, x, w = tup
@@ -49,7 +50,7 @@ class LaneRenderer:
         yScaledRef = yRef * self.metersPerPixelY
         return np.polyval(actualFit, yScaledRef)
 
-    def findLaneFit(self, imgLeft, imgRight):
+    def findLaneFit(self, imgLeft, imgRight, updateImages=False):
 
         left = self.extractPoints(imgLeft)
         right = self.extractPoints(imgRight)
@@ -61,15 +62,21 @@ class LaneRenderer:
         ylmin = np.min(left[0])
         yrmin = np.min(right[0])
 
+        def yLaneWidthAdjust(y):
+            maxsize = 3 * imgLeft.shape[0] / 4
+            ymin = min(y, maxsize)
+            return (maxsize - y) / maxsize * self.laneWidth / 3 + self.laneWidth
+
         yadj, xadj, wadj = left if ylmin > yrmin else right
-        yadjr = (yrmin, ylmin, -self.laneWidth) if ylmin > yrmin else (ylmin, yrmin, self.laneWidth)
+        yadjr = (yrmin, ylmin, -yLaneWidthAdjust(yrmin)) if ylmin > yrmin else (ylmin, yrmin, yLaneWidthAdjust(ylmin))
         imgCp = imgRight if ylmin > yrmin else imgLeft
         bestFit = rightFit if ylmin > yrmin else leftFit
+        leastFit = leftFit if ylmin > yrmin else rightFit
 
         #adjust the line fit by copy data points within the adjustment range
         if yadjr[1] - yadjr[0] > 50:
 
-            print('adding extra points: diff = ', yadjr[1] - yadjr[0])
+            #print('adding extra points: diff = ', yadjr[1] - yadjr[0])
 
             delta = yadjr[2]
             absdelta = abs(yadjr[2])
@@ -80,29 +87,97 @@ class LaneRenderer:
             ycp, xcp, wcp = self.extractPoints(subimg)
             ycp += yadjr[0]
 
-            # translate the points perpendicular to the tanget of the curve at the given point
-            yn, xn = [], []
-            for yo, xo in zip(ycp, xcp):
-                dy = np.polyval(deriv, yo)
-                dx = np.sqrt(1 - dy*dy)
-                if delta < 0:
-                    dx = -dx
+            # determine if the fit curvature is near zero, if so, reflect the augemented data points across the central lane line
+            x1 = np.polyval(bestFit, yadjr[0])
+            x2 = np.polyval(bestFit, (imgCp.shape[0] + yadjr[0]) / 2)
+            x3 = np.polyval(bestFit, imgCp.shape[0])
+            dx1 = np.polyval(deriv, yadjr[0])
+            dx2 = np.polyval(deriv, imgCp.shape[0])
 
-                yn.append(int(yo + dy * absdelta))
-                xn.append(int(xo + dx * absdelta))
+            print(x1 - x2, x2 - x3, (x1 - x2) - (x2 - x3), abs(dx1 - dx2))
 
-            print(np.dstack((xn, yn)))
+            if abs((x1 - x2) - (x2 - x3)) < 16 and abs(dx1 - dx2) < 0.06:
+                print('curvature is near zero')
 
-            xadj = np.concatenate((xadj, np.array(xn)))
-            yadj = np.concatenate((yadj, np.array(yn)))
-            wadj = np.concatenate((wadj, wcp))
+                # reflect points
+                xlmin = np.polyval(leastFit, yadjr[1])
+                xlmax = np.polyval(leastFit, imgCp.shape[0])
+
+                xbmin = np.polyval(bestFit, yadjr[1])
+                xbmax = np.polyval(bestFit, imgCp.shape[0])
+
+                print(yadjr)
+
+                m1 = (xlmax - xlmin)/(imgCp.shape[0] - yadjr[1])
+                m2 = (xbmax - xbmin)/(imgCp.shape[0] - yadjr[1])
+                m = (m1 + m2) / 2
+
+                print(m1, m2, m)
+
+                l = np.array([m, 1])
+                laneorigin = np.array([(xbmax + xlmax) / 2, imgCp.shape[0]])
+
+                #print(laneorigin)
+
+                vcp = (np.dstack((xcp, ycp)) - laneorigin).reshape((-1,2))
+
+                #print(vcp)
+
+                vldot = np.dot(vcp, l)
+                lldot = np.dot(l,l)
+                scdot = (vldot / lldot).reshape(-1,1)
+
+                #print(vldot, lldot, scdot)
+
+                rcp = 2 * scdot * l - vcp
+
+                vvcp = rcp + laneorigin
+
+                #print(vvcp)
+
+                xn = np.int32(vvcp[:,0])
+                yn = np.int32(vvcp[:,1])
+
+                #print(xn, yn)
+
+                #print (vvcp)
+
+                #xd = xcp - xmmax
+                #xn = np.array(xcp - (xd * 2), dtype=np.int32)
+                #yn = ycp
+
+                xadj = np.concatenate((xadj, xn))
+                yadj = np.concatenate((yadj, yn))
+                wadj = np.concatenate((wadj, wcp))
+
+            else:
+                # translate the points perpendicular to the tanget of the curve at the given point
+                yn, xn = [], []
+                for yo, xo in zip(ycp, xcp):
+                    dy = np.polyval(deriv, yo)
+                    dx = np.sqrt(1 - dy*dy)
+                    if delta < 0:
+                        dx = -dx
+
+                    yn.append(int(yo + dy * absdelta))
+                    xn.append(int(xo + dx * absdelta))
+
+                #print(np.dstack((xn, yn)))
+
+                xadj = np.concatenate((xadj, np.array(xn)))
+                yadj = np.concatenate((yadj, np.array(yn)))
+                wadj = np.concatenate((wadj, wcp))
 
             if ylmin > yrmin:
                 left = (yadj, xadj, wadj)
                 leftFit = self.findLineFit(left)
+                if updateImages:
+                    imgLeft[yn,xn] = wcp
             else:
                 right = (yadj, xadj, wadj)
                 rightFit = self.findLineFit(right)
+                if updateImages:
+                    imgRight[yn,xn] = wcp
 
         # find scaled line fit in object space
         leftObjectFit = self.findObjectSpaceLineFit(left)
@@ -112,7 +187,7 @@ class LaneRenderer:
         leftRadius = self.findLineCurvature(leftObjectFit, imgLeft.shape[0])
         rightRadius = self.findLineCurvature(rightObjectFit, imgRight.shape[0])
 
-        print(leftRadius, rightRadius)
+        #print(leftRadius, rightRadius)
         radius = leftRadius if ylmin < yrmin else rightRadius
 
         #find lane offset
@@ -120,7 +195,7 @@ class LaneRenderer:
         rObjectLanePosition = self.findObjectSpaceX(rightObjectFit, imgRight.shape[0])
         laneObjectCenter = (lObjectLanePosition + rObjectLanePosition) / 2
 
-        print(lObjectLanePosition, rObjectLanePosition, laneObjectCenter)
+        #print(lObjectLanePosition, rObjectLanePosition, laneObjectCenter)
 
         offset = (max(imgLeft.shape[1], imgLeft.shape[1]) / 2) * self.metersPerPixelX - laneObjectCenter
 
@@ -129,14 +204,15 @@ class LaneRenderer:
         lane.dataPoints = (left, right)
         lane.radius = radius
         lane.centerOffset = offset
+        lane.minY = (np.min(left[0]), np.min(right[0]))
 
         return lane
 
-    def generateLinePoints(self, shape, fit, step):
+    def generateLinePoints(self, shape, fit, step, minY=0):
 
         points = []
 
-        for y in np.arange(0, shape[0]+1, step):
+        for y in np.arange(minY, shape[0]+1, step):
             x = np.polyval(fit, y)
             points.append((x, y))
 

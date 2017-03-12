@@ -16,7 +16,7 @@ class LineFilter:
 
         op = np.logical_and if op == 'and' else np.logical_or
 
-        if self.mask != None:
+        if self.mask is not None:
             mask = op(mask, self.mask)
         self.mask = mask
 
@@ -43,9 +43,13 @@ class LineFilter:
         return sobely
 
 
-    def colorThreshold(self, channel, threshold, op='and'):
+    def colorThreshold(self, channel, threshold, kernel=0, sigma=1, op='and'):
 
         pixels = self.img[:,:,channel]
+
+        if kernel > 0:
+            pixels = cv2.GaussianBlur(pixels, (kernel, kernel) , sigma)
+
         mask = [(pixels >= threshold[0]) & (pixels <= threshold[1])]
 
         self.output = pixels
@@ -131,7 +135,7 @@ class LineFilter:
         output = np.zeros_like(self.img, dtype=np.float32)
 
         for img, color in zip(imgMasks, useColors):
-            if color == None:
+            if color is None:
                 color = np.array([1, 1, 1])
             output += np.outer(img, color).reshape(output.shape)
 

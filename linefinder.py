@@ -5,13 +5,15 @@ from scipy import signal
 
 class LineFinder:
 
-    def __init__(self, laneWidth, filterSize, window_width, window_height, margin, terminate):
+    def __init__(self, laneWidth, searchHeight, filterSize, window_width, window_height, margin, terminate, maxDistance):
         self.window_width = window_width
         self.window_height = window_height
         self.margin = margin
         self.filterSize = filterSize
         self.laneWidth = laneWidth
+        self.searchHeight = searchHeight
         self.terminate = terminate if terminate else math.inf
+        self.maxDistance = maxDistance
 
     def copy_mask(self, imgInput, imgOutput, width, height, center,level):
         shape = imgInput.shape
@@ -49,11 +51,11 @@ class LineFinder:
         # Sum quarter bottom of image to get slice, could use a different ratio
         hw = int(shape[1]/2)
         lw = self.laneWidth
-        l_start_layer = image[int(7*shape[0]/8):,hw-lw:hw]
+        l_start_layer = image[shape[0] - self.searchHeight:,hw-lw:hw]
         conv_signal = np.sum(signal.convolve2d(l_start_layer, window2d, mode='same'), axis=0)
         l_center = np.argmax(conv_signal)+(hw-lw)
 
-        r_start_layer = image[int(7*shape[0]/8):,hw:hw+lw]
+        r_start_layer = image[shape[0] - self.searchHeight:,hw:hw+lw]
         conv_signal = np.sum(signal.convolve2d(r_start_layer, window2d, mode='same'), axis=0)
         r_center = np.argmax(conv_signal)+hw
 
@@ -67,7 +69,7 @@ class LineFinder:
         diffCentroid = (0, 0)
 
         # Go through each layer looking for max pixel locations
-        for level in range(1,(int)(shape[0]/window_height)):
+        for level in range(1,(int)((shape[0] - self.maxDistance)/window_height)):
 
             # convolve the window into the vertical slice of the image
             #image_layer = np.sum(image[int(shape[0]-(level+1)*window_height):int(shape[0]-level*window_height),:], axis=0)
@@ -103,7 +105,7 @@ class LineFinder:
             if rMissing > 0:
                 r_center += diffCentroid[0]
 
-            print(diffCentroid)
+            #print(diffCentroid)
 
             # Add what we found for that layer
             prevCentroid = None
@@ -130,7 +132,7 @@ class LineFinder:
         l_points = np.zeros_like(img)
         r_points = np.zeros_like(img)
 
-        print("centroids found: ", window_centroids)
+        #print("centroids found: ", window_centroids)
 
         boundariesLeft = np.zeros_like(img) if drawBoundaries else None
         boundariesRight = np.zeros_like(img) if drawBoundaries else None
