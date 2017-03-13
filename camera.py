@@ -39,7 +39,7 @@ class Camera:
         return retArr
 
     def drawCorners(self, img, corners):
-        return cv2.drawChessboardCorners(img, self.pattern, corners, corners != None)
+        return cv2.drawChessboardCorners(img, self.pattern, corners, corners is not None)
 
     def undistort(self, img):
         return cv2.undistort(img, self.calibrationInfo[0], self.calibrationInfo[1], None, self.calibrationInfo[0])

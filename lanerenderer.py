@@ -73,7 +73,7 @@ class LaneRenderer:
         bestFit = rightFit if ylmin > yrmin else leftFit
         leastFit = leftFit if ylmin > yrmin else rightFit
 
-        #adjust the line fit by copy data points within the adjustment range
+        #adjust the line fit by coping data points within the adjustment range
         if yadjr[1] - yadjr[0] > 50:
 
             #print('adding extra points: diff = ', yadjr[1] - yadjr[0])
@@ -151,7 +151,8 @@ class LaneRenderer:
                 wadj = np.concatenate((wadj, wcp))
 
             else:
-                # translate the points perpendicular to the tanget of the curve at the given point
+                # the line is curved; model the missing line by translating the points from the known line
+                # to a region perpendicular to the tanget of the curve at the given point
                 yn, xn = [], []
                 for yo, xo in zip(ycp, xcp):
                     dy = np.polyval(deriv, yo)
@@ -187,8 +188,10 @@ class LaneRenderer:
         leftRadius = self.findLineCurvature(leftObjectFit, imgLeft.shape[0])
         rightRadius = self.findLineCurvature(rightObjectFit, imgRight.shape[0])
 
-        #print(leftRadius, rightRadius)
-        radius = leftRadius if ylmin < yrmin else rightRadius
+        print(leftRadius, rightRadius)
+
+        #XXX use left radius since the left lane line is more stable in the project demo video
+        radius = leftRadius # if ylmin < yrmin else rightRadius
 
         #find lane offset
         lObjectLanePosition = self.findObjectSpaceX(leftObjectFit, imgLeft.shape[0])

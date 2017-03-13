@@ -42,6 +42,17 @@ class LineFilter:
 
         return sobely
 
+    def sobelMag(self, channel, kernel, bAbs=True):
+        pixels = self.img[:,:,channel]
+
+        deriv_filter = cv2.getDerivKernels(dx=1, dy=1, ksize=kernel, normalize=True)
+        sobel = cv2.sepFilter2D(pixels, cv2.CV_64F, deriv_filter[0], deriv_filter[1])
+
+        if bAbs:
+            sobel = np.abs(sobel)
+
+        return sobel
+
 
     def colorThreshold(self, channel, threshold, kernel=0, sigma=1, op='and'):
 

@@ -45,15 +45,22 @@ video_out.open(
 )
 
 lf=LineFilter()
-linefinder = LineFinder(75, 50, 10, 30, 40, 15, 120)
-lanewidthPixels = 110
+linefinder = LineFinder(75, 50, 10, 40, 40, 15, 200, 350)
+lanewidthPixels = 100
 dashLaneLineLengthPixels = 30
 lanerender=LaneRenderer(lanewidthPixels, 3.7/lanewidthPixels, 3./dashLaneLineLengthPixels)
 frame_history = []
+lane_history = []
+lane_details = { "radius": 0, "offset": 0 }
 
-MAX_HISTORY = 5
+MAX_FRAME_HISTORY = 5
+MAX_LANE_HISTORY = 10
 
-def pipeline(video):
+def drawText(img, region_w, region_w2, text, line):
+    textSize, baseLine = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1, 1)    
+    cv2.putText(img, text, (int((region_w + region_w2 - textSize[0]) / 2), (5 + textSize[1]) * line), cv2.FONT_HERSHEY_SIMPLEX, 1, (255., 255., 255.), 2)
+
+def pipeline(video, frame_count):
 
     retval, nextframe = video.read()
 
@@ -77,15 +84,23 @@ def pipeline(video):
         laneWidth=100
         srcImg = hsl_test_image
 
-        #hue and saturation line filter
-        img1 = [lf.source(srcImg).
-            colorThreshold(H, (0, 30), kernel=9).
-            colorThreshold(S, (100, 255), kernel=9).
-            sobelMagThreshold(S, (1.5, 255), 9).
-            #sobelAngleThreshold(S, (0.5, 1.75), 5).
-            #sobelXThreshold(S, (9, 255), 9).
+        img1 = [lf.source(hsv_test_image).
+            colorThreshold(H, (0, 30), kernel=5).
+            colorThreshold(1, (100, 255), kernel=5).
+            colorThreshold(2, (130, 255), kernel=5).
+            sobelMagThreshold(S, (0.5, 255), 5).
             markLines()
         ]
+
+        img1_1 = [lf.source(hsv_test_image).
+            colorThreshold(H, (0, 30), kernel=5).
+            colorThreshold(1, (0, 30), kernel=5).
+            colorThreshold(2, (200, 255), kernel=5).
+            sobelMagThreshold(S, (1, 255), 5).
+            markLines()
+        ]
+
+        img1 = cv2.bitwise_or(np.array(img1), np.array(img1_1))
 
         #shadow resistant filter
         #img2 = [lf.source(srcImg).
@@ -96,13 +111,14 @@ def pipeline(video):
         #    markLines()
         #       ]
 
-        img2 = [lf.source(srcImg).
+        img2 = [lf.source(hsv_test_image).
             colorThreshold(H, (0, 30), kernel=9).
-            colorThreshold(S, (50, 255), kernel=9).
-            sobelMagThreshold(S, (4, 255), 5).
-            #sobelAngleThreshold(L, (0.5, 1.75), 5).
+            colorThreshold(1, (70, 160), kernel=9).
+            sobelMagThreshold(1, (2, 255), 5).
+            colorThreshold(2, (100, 255), kernel=5).
+            sobelMagThreshold(2, (1.5, 255), 5).
             markLines()
-        ]
+       ]
 
         #lightness
         img3 = [lf.source(hsv_test_image).
@@ -128,7 +144,7 @@ def pipeline(video):
         filtered_image = np.uint8(marked[0] * 255)
 
         overhead_image_color = camera.unproject(marked[0], laneWidth, (1280, 720))
-        if len(frame_history) >= MAX_HISTORY:
+        if len(frame_history) >= MAX_FRAME_HISTORY:
             frame_history.pop(0)
         frame_history.append(overhead_image_color)
 
@@ -198,6 +214,34 @@ def pipeline(video):
         final_img[0:region_h,0:region_w] = dest1
         final_img[0:region_h,region_w2:] = dest2
 
+        # store lane history
+        if len(lane_history) > MAX_LANE_HISTORY:
+            lane_history.pop(0)
+        lane_history.append(lane)
+
+        # average lane radius and offset
+        radius = lane_details["radius"]
+        offset = lane_details["offset"]
+
+        if frame_count % 10 == 0:
+            total_radius, total_offset = 0, 0
+            for item in lane_history:
+                total_radius += item.radius
+                total_offset += item.centerOffset
+            lane_details["radius"] = radius = total_radius / len(lane_history)
+            lane_details["offset"] = offset = total_offset / len(lane_history)
+
+        #draw curvature and offset
+        textSize, baseLine = cv2.getTextSize("Curvature Radius", cv2.FONT_HERSHEY_SIMPLEX, 1, 1)
+        text_h = textSize[1] + 5
+
+        cv2.rectangle(final_img, (region_w, 0), (region_w2, text_h * 5 + 5), (0., 0., 0.), cv2.FILLED)
+
+        drawText(final_img, region_w, region_w2, "Curvature Radius", 1)
+        drawText(final_img, region_w, region_w2, "{:.1f} m".format(radius), 2)
+        drawText(final_img, region_w, region_w2, "Lane Offset", 4)
+        drawText(final_img, region_w, region_w2, "{:.2f} m".format(offset), 5)
+
         return final_img
 
     except ValueError:
@@ -206,7 +250,7 @@ def pipeline(video):
 
 i = 0
 while True:
-    frame = pipeline(video)
+    frame = pipeline(video, i)
     if frame is not False:
         print('writing frame ', i)
         video_out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
