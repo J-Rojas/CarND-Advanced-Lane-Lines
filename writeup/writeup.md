@@ -1,8 +1,11 @@
 
 ## Introduction
 
-This document describes the process of generating lane line paths from images and videos sourced from a camera mounted upon a vehicle. The lane line paths are modeled accurately using computer vision techniques, image transformations, and line fitting methods. 
+This document describes the process of generating lane line paths from images and videos sourced from a camera mounted upon a vehicle. The lane line paths are modeled accurately using computer vision techniques, image transformations, and line fitting methods.
 
+Video URL:
+
+https://www.youtube.com/watch?v=DAEN7pva-qQ
 
 ```python
 from IPython.display import YouTubeVideo
@@ -20,7 +23,7 @@ YouTubeVideo("DAEN7pva-qQ")
             frameborder="0"
             allowfullscreen
         ></iframe>
-        
+
 
 
 
@@ -56,7 +59,7 @@ def showImages(images, imgs_row, imgs_col, col_titles=None, cmap=None):
 
     if imgs_row == 1 and imgs_col == 1:
         axes.imshow(images[0], cmap=cmap)
-    else: 
+    else:
         i = 0
         for ax, image in zip(axes.flat, images):
             if i < imgs_col and col_titles is not None:
@@ -66,7 +69,7 @@ def showImages(images, imgs_row, imgs_col, col_titles=None, cmap=None):
 
     plt.show()
     plt.close()
-    
+
 def drawText(img, region_w, region_w2, text, line):
     textSize, baseLine = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1, 1)    
     cv2.putText(img, text, (int((region_w + region_w2 - textSize[0]) / 2), (5 + textSize[1]) * line), cv2.FONT_HERSHEY_SIMPLEX, 1, (255., 255., 255.), 2)    
@@ -78,7 +81,7 @@ In order to perform object space calculations from projections taken from a phot
 
 To generate distortion parameter set for the camera and undistort images, I used the following steps:
 
-* Gather all of the internal corner points for all chessboard calibration images using cv2.findChessboardCorners() 
+* Gather all of the internal corner points for all chessboard calibration images using cv2.findChessboardCorners()
 * Supply the corner points for all images and their associated grid index points to cv2.calibrateCamera()
 * The result of the cv2.calibrateCamera() function is a set of lense distortion parameters.
 * A given image can be undistorted by using the cv2.undistort() function with an image and the lens distortion parameters from the previous step.
@@ -106,7 +109,7 @@ distorted_imgs = []
 for img, corners in camera_calibrations:
     distorted_imgs.append(img)
     undistorted_imgs.append(camera.undistort(camera.drawCorners(img, corners)))
-    
+
 arrImgs = np.array([distorted_imgs, undistorted_imgs])
 showImages(arrImgs.T.flatten(), 1, 2, col_titles=["Distorted", "Undistorted"])   
 ```
@@ -328,20 +331,20 @@ l_fit, r_fit = lane.lineFit
 l_min, r_min = lane.minY
 l_points = lanerender.generateLinePoints(left_lane_img.shape, l_fit, 5, minY=l_min)
 r_points = lanerender.generateLinePoints(right_lane_img.shape, r_fit, 5, minY=r_min)
-left_lane_line_img = lanerender.renderLinePoints(l_points, 
+left_lane_line_img = lanerender.renderLinePoints(l_points,
   (left_lane_img.shape[0], left_lane_img.shape[1], 3), cv2.merge((left_lane_img, left_lane_img, left_lane_img)),
   thickness=3
 )
-right_lane_line_img = lanerender.renderLinePoints(r_points, 
+right_lane_line_img = lanerender.renderLinePoints(r_points,
   (right_lane_img.shape[0], right_lane_img.shape[1], 3), cv2.merge((right_lane_img, right_lane_img, right_lane_img)),
   thickness=3
 )
 
-left_line_img = lanerender.renderLinePoints(l_points, 
+left_line_img = lanerender.renderLinePoints(l_points,
   (left_lane_img.shape[0], left_lane_img.shape[1], 3),
   thickness=3, alpha=1.0, color=(0, 0, 255)
 )
-right_line_img = lanerender.renderLinePoints(r_points, 
+right_line_img = lanerender.renderLinePoints(r_points,
   (right_lane_img.shape[0], right_lane_img.shape[1], 3),
   thickness=3, alpha=1.0, color=(255, 0, 0)
 )
@@ -358,7 +361,7 @@ showImages([left_lane_line_img, right_lane_line_img], 1, 2, col_titles=["Left La
 
 #### Curvature Radius and Lane Position Offset
 
-After the lane fitting is completed, there is enough information to determine the curvature radius and lane offset position. One important factor however is that the line has to be modeled in real-world measurement, such as meters, instead of pixels. In order to due this, the data point coordinates for each lines pixels are scaled by a certain factor to convert them to world-space coordinates. 
+After the lane fitting is completed, there is enough information to determine the curvature radius and lane offset position. One important factor however is that the line has to be modeled in real-world measurement, such as meters, instead of pixels. In order to due this, the data point coordinates for each lines pixels are scaled by a certain factor to convert them to world-space coordinates.
 
 The scaling factor in the x dimension is 3.7 meters over the pixel lane width. The scaling factor for the y dimension is 3 meters over the 30 pixels. This second factor was determined by measuring the length of a lane line marker in pixels within the birds eye view (roughly 30 pixels) and using 3 meters as the length of the lane line in world space.
 
